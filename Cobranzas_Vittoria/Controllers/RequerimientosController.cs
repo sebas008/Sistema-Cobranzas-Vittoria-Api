@@ -1,0 +1,46 @@
+using Cobranzas_Vittoria.Dtos.Compras;
+using Cobranzas_Vittoria.Interfaces;
+using Microsoft.AspNetCore.Mvc;
+
+namespace Cobranzas_Vittoria.Controllers
+{
+    [ApiController]
+    [Route("api/compras/requerimientos")]
+    public class RequerimientosController : ControllerBase
+    {
+        private readonly IRequerimientoService _service;
+        public RequerimientosController(IRequerimientoService service) => _service = service;
+
+        [HttpGet]
+        public async Task<IActionResult> List([FromQuery] string? estado, [FromQuery] int? idEspecialidad, [FromQuery] int? idProyecto)
+            => Ok(await _service.ListAsync(estado, idEspecialidad, idProyecto));
+
+        [HttpGet("{id:int}")]
+        public async Task<IActionResult> Get(int id)
+        {
+            var res = await _service.GetAsync(id);
+            return res is null ? NotFound() : Ok(res);
+        }
+
+        [HttpPost]
+        public async Task<IActionResult> Crear([FromBody] RequerimientoCreateDto dto)
+        {
+            var id = await _service.CrearAsync(dto);
+            return Ok(new { IdRequerimiento = id });
+        }
+
+        [HttpPatch("{id:int}/estado")]
+        public async Task<IActionResult> UpdateEstado(int id, [FromBody] RequerimientoEstadoDto dto)
+        {
+            await _service.UpdateEstadoAsync(id, dto.Estado, dto.Observacion);
+            return Ok(new { Ok = true });
+        }
+
+        [HttpPost("{id:int}/validacion-almacen")]
+        public async Task<IActionResult> ValidarAlmacen(int id, [FromBody] RequerimientoValidacionDto dto)
+        {
+            await _service.ValidarAlmacenAsync(id, dto.IdUsuario, dto.Resultado, dto.Observacion);
+            return Ok(new { Ok = true });
+        }
+    }
+}

@@ -1,0 +1,6 @@
+@Cobranzas_Vittoria_HostAddress = http://localhost:5212
+
+GET {{Cobranzas_Vittoria_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
