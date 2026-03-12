@@ -8,14 +8,21 @@ namespace Cobranzas_Vittoria.Controllers
     public class KardexController : ControllerBase
     {
         private readonly IKardexService _service;
-        public KardexController(IKardexService service) => _service = service;
 
-        [HttpGet]
-        public async Task<IActionResult> List([FromQuery] int? idMaterial, [FromQuery] int? idEspecialidad, [FromQuery] DateTime? fechaDesde, [FromQuery] DateTime? fechaHasta)
-            => Ok(await _service.ListAsync(idMaterial, idEspecialidad, fechaDesde, fechaHasta));
+        public KardexController(IKardexService service)
+        {
+            _service = service;
+        }
 
-        [HttpGet("resumen")]
-        public async Task<IActionResult> Resumen([FromQuery] int? idMaterial, [FromQuery] int? idEspecialidad)
-            => Ok(await _service.ResumenAsync(idMaterial, idEspecialidad));
+        [HttpGet("movimientos")]
+        public async Task<IActionResult> Movimientos(
+            [FromQuery] int? idMaterial,
+            [FromQuery] int? idEspecialidad,
+            [FromQuery] string? fechaDesde,
+            [FromQuery] string? fechaHasta)
+        {
+            var data = await _service.ListMovimientosAsync(idMaterial, idEspecialidad, fechaDesde, fechaHasta);
+            return Ok(data);
+        }
     }
 }

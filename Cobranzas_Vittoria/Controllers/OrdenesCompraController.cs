@@ -9,7 +9,11 @@ namespace Cobranzas_Vittoria.Controllers
     public class OrdenesCompraController : ControllerBase
     {
         private readonly IOrdenCompraService _service;
-        public OrdenesCompraController(IOrdenCompraService service) => _service = service;
+
+        public OrdenesCompraController(IOrdenCompraService service)
+        {
+            _service = service;
+        }
 
         [HttpGet]
         public async Task<IActionResult> List([FromQuery] string? estado, [FromQuery] int? idProveedor, [FromQuery] int? idProyecto)
@@ -26,11 +30,18 @@ namespace Cobranzas_Vittoria.Controllers
         public async Task<IActionResult> Crear([FromBody] OrdenCompraCreateDto dto)
             => Ok(await _service.CrearAsync(dto));
 
+        [HttpPut("{id:int}")]
+        public async Task<IActionResult> Update(int id, [FromBody] OrdenCompraUpdateDto dto)
+        {
+            await _service.UpdateAsync(id, dto);
+            return Ok(new { ok = true });
+        }
+
         [HttpPatch("{id:int}/estado")]
         public async Task<IActionResult> UpdateEstado(int id, [FromBody] OrdenCompraEstadoDto dto)
         {
             await _service.UpdateEstadoAsync(id, dto.EstadoNuevo, dto.IdUsuario, dto.Observacion);
-            return Ok(new { Ok = true });
+            return Ok(new { ok = true });
         }
     }
 }

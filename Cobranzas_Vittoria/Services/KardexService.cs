@@ -1,4 +1,3 @@
-using Cobranzas_Vittoria.Entities;
 using Cobranzas_Vittoria.Interfaces;
 
 namespace Cobranzas_Vittoria.Services
@@ -6,12 +5,13 @@ namespace Cobranzas_Vittoria.Services
     public class KardexService : IKardexService
     {
         private readonly IKardexRepository _repo;
-        public KardexService(IKardexRepository repo) => _repo = repo;
 
-        public Task<IEnumerable<KardexMovimiento>> ListAsync(int? idMaterial, int? idEspecialidad, DateTime? fechaDesde, DateTime? fechaHasta)
-            => _repo.ListAsync(idMaterial, idEspecialidad, fechaDesde, fechaHasta);
+        public KardexService(IKardexRepository repo)
+        {
+            _repo = repo;
+        }
 
-        public Task<IEnumerable<KardexResumenMaterial>> ResumenAsync(int? idMaterial, int? idEspecialidad)
-            => _repo.ResumenAsync(idMaterial, idEspecialidad);
+        public Task<IEnumerable<dynamic>> ListMovimientosAsync(int? idMaterial, int? idEspecialidad, string? fechaDesde, string? fechaHasta)
+            => _repo.ListMovimientosAsync(idMaterial, idEspecialidad, fechaDesde, fechaHasta);
     }
 }

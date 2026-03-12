@@ -7,7 +7,11 @@ namespace Cobranzas_Vittoria.Services
     public class OrdenCompraService : IOrdenCompraService
     {
         private readonly IOrdenCompraRepository _repo;
-        public OrdenCompraService(IOrdenCompraRepository repo) => _repo = repo;
+
+        public OrdenCompraService(IOrdenCompraRepository repo)
+        {
+            _repo = repo;
+        }
 
         public Task<IEnumerable<OrdenCompra>> ListAsync(string? estado, int? idProveedor, int? idProyecto)
             => _repo.ListAsync(estado, idProveedor, idProyecto);
@@ -21,10 +25,10 @@ namespace Cobranzas_Vittoria.Services
         public async Task<object> CrearAsync(OrdenCompraCreateDto dto)
         {
             var res = await _repo.CrearAsync(dto);
-            return new { IdOrdenCompra = res.IdOrdenCompra, Total = res.Total };
+            return new { idOrdenCompra = res.IdOrdenCompra, total = res.Total };
         }
 
-        public Task UpdateEstadoAsync(int idOrdenCompra, string estadoNuevo, int? idUsuario, string? observacion)
-            => _repo.UpdateEstadoAsync(idOrdenCompra, estadoNuevo, idUsuario, observacion);
+        public Task UpdateAsync(int idOrdenCompra, OrdenCompraUpdateDto dto) => _repo.UpdateAsync(idOrdenCompra, dto);
+        public Task UpdateEstadoAsync(int idOrdenCompra, string estadoNuevo, int? idUsuario, string? observacion) => _repo.UpdateEstadoAsync(idOrdenCompra, estadoNuevo, idUsuario, observacion);
     }
 }

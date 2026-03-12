@@ -1,4 +1,5 @@
 namespace Cobranzas_Vittoria.Dtos.Compras;
+
 public class OrdenCompraCreateDto
 {
     public string NumeroOrdenCompra { get; set; } = string.Empty;
@@ -11,6 +12,7 @@ public class OrdenCompraCreateDto
     public string? RutaPdf { get; set; }
     public List<OrdenCompraDetalleCreateDto> Items { get; set; } = new();
 }
+
 public class OrdenCompraDetalleCreateDto
 {
     public int IdMaterial { get; set; }

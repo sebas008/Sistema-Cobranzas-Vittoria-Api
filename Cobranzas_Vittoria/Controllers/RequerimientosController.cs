@@ -9,7 +9,11 @@ namespace Cobranzas_Vittoria.Controllers
     public class RequerimientosController : ControllerBase
     {
         private readonly IRequerimientoService _service;
-        public RequerimientosController(IRequerimientoService service) => _service = service;
+
+        public RequerimientosController(IRequerimientoService service)
+        {
+            _service = service;
+        }
 
         [HttpGet]
         public async Task<IActionResult> List([FromQuery] string? estado, [FromQuery] int? idEspecialidad, [FromQuery] int? idProyecto)
@@ -26,21 +30,28 @@ namespace Cobranzas_Vittoria.Controllers
         public async Task<IActionResult> Crear([FromBody] RequerimientoCreateDto dto)
         {
             var id = await _service.CrearAsync(dto);
-            return Ok(new { IdRequerimiento = id });
+            return Ok(new { idRequerimiento = id });
+        }
+
+        [HttpPut("{id:int}")]
+        public async Task<IActionResult> Update(int id, [FromBody] RequerimientoUpdateDto dto)
+        {
+            await _service.UpdateAsync(id, dto);
+            return Ok(new { ok = true });
         }
 
         [HttpPatch("{id:int}/estado")]
         public async Task<IActionResult> UpdateEstado(int id, [FromBody] RequerimientoEstadoDto dto)
         {
             await _service.UpdateEstadoAsync(id, dto.Estado, dto.Observacion);
-            return Ok(new { Ok = true });
+            return Ok(new { ok = true });
         }
 
         [HttpPost("{id:int}/validacion-almacen")]
         public async Task<IActionResult> ValidarAlmacen(int id, [FromBody] RequerimientoValidacionDto dto)
         {
             await _service.ValidarAlmacenAsync(id, dto.IdUsuario, dto.Resultado, dto.Observacion);
-            return Ok(new { Ok = true });
+            return Ok(new { ok = true });
         }
     }
 }

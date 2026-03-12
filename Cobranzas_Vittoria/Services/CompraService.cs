@@ -1,5 +1,4 @@
 using Cobranzas_Vittoria.Dtos.Compras;
-using Cobranzas_Vittoria.Entities;
 using Cobranzas_Vittoria.Interfaces;
 
 namespace Cobranzas_Vittoria.Services
@@ -7,23 +6,23 @@ namespace Cobranzas_Vittoria.Services
     public class CompraService : ICompraService
     {
         private readonly ICompraRepository _repo;
-        public CompraService(ICompraRepository repo) => _repo = repo;
 
-        public Task<IEnumerable<Compra>> ListAsync(bool? aceptada, int? idProveedor)
-            => _repo.ListAsync(aceptada, idProveedor);
-
-        public async Task<object?> GetAsync(int idCompra)
+        public CompraService(ICompraRepository repo)
         {
-            var (head, items, docs) = await _repo.GetAsync(idCompra);
-            return head is null ? null : new { compra = head, items, documentos = docs };
+            _repo = repo;
         }
 
-        public async Task<object> RegistrarAsync(CompraCreateDto dto)
+        public Task<IEnumerable<dynamic>> ListAsync(bool? aceptada, int? idProveedor) => _repo.ListAsync(aceptada, idProveedor);
+        public Task<object?> GetAsync(int idCompra) => _repo.GetAsync(idCompra);
+
+        public async Task<object> CrearAsync(CompraCreateDto dto)
         {
-            var res = await _repo.RegistrarAsync(dto);
-            return new { IdCompra = res.IdCompra, MontoTotal = res.MontoTotal };
+            var res = await _repo.CrearAsync(dto);
+            return new { idCompra = res.IdCompra, montoTotal = res.MontoTotal };
         }
 
-        public Task AceptarAsync(int idCompra) => _repo.AceptarAsync(idCompra);
+        public Task<IEnumerable<dynamic>> ListPendientesDesdeOcAsync() => _repo.ListPendientesDesdeOcAsync();
+        public Task<IEnumerable<dynamic>> GetDocumentosAsync(int idCompra) => _repo.GetDocumentosAsync(idCompra);
+        public Task SaveDocumentosAsync(int idCompra, IEnumerable<(string NombreArchivo, string RutaArchivo, string? Extension)> docs) => _repo.SaveDocumentosAsync(idCompra, docs);
     }
 }
