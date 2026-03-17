@@ -22,16 +22,26 @@ SELECT
     c.MontoTotal,
     c.Observacion,
     p.RazonSocial AS Proveedor,
-    e.Nombre AS Especialidad,
-    pr.NombreProyecto,
-    oc.NumeroOrdenCompra,
-    r.NumeroRequerimiento
+    COALESCE(NULLIF(LTRIM(RTRIM(r.NumeroRequerimiento)), ''), '-') AS NumeroRequerimiento,
+    COALESCE(NULLIF(LTRIM(RTRIM(pr.NombreProyecto)), ''), '-') AS NombreProyecto,
+    COALESCE(NULLIF(LTRIM(RTRIM(espAgg.Especialidad)), ''), NULLIF(LTRIM(RTRIM(e.Nombre)), ''), '-') AS Especialidad,
+    oc.NumeroOrdenCompra
 FROM compras.Compra c
 INNER JOIN compras.OrdenCompra oc ON oc.IdOrdenCompra = c.IdOrdenCompra
 LEFT JOIN compras.Requerimiento r ON r.IdRequerimiento = oc.IdRequerimiento
 LEFT JOIN maestra.Proveedor p ON p.IdProveedor = c.IdProveedor
 LEFT JOIN maestra.Especialidad e ON e.IdEspecialidad = r.IdEspecialidad
-LEFT JOIN maestra.Proyecto pr ON pr.IdProyecto = r.IdProyecto
+LEFT JOIN maestra.Proyecto pr ON pr.IdProyecto = COALESCE(oc.IdProyecto, r.IdProyecto)
+OUTER APPLY (
+    SELECT STRING_AGG(x.Nombre, ', ') AS Especialidad
+    FROM (
+        SELECT DISTINCT e2.Nombre
+        FROM compras.OrdenCompraDetalle od
+        INNER JOIN maestra.Material m ON m.IdMaterial = od.IdMaterial
+        INNER JOIN maestra.Especialidad e2 ON e2.IdEspecialidad = m.IdEspecialidad
+        WHERE od.IdOrdenCompra = oc.IdOrdenCompra
+    ) x
+) espAgg
 WHERE (@Aceptada IS NULL OR c.Aceptada = @Aceptada)
   AND (@IdProveedor IS NULL OR c.IdProveedor = @IdProveedor)
 ORDER BY c.IdCompra DESC";
@@ -96,14 +106,24 @@ SELECT
     oc.IdProveedor,
     p.RazonSocial AS Proveedor,
     r.IdRequerimiento,
-    r.NumeroRequerimiento,
-    e.Nombre AS Especialidad,
-    pr.NombreProyecto
+    COALESCE(NULLIF(LTRIM(RTRIM(r.NumeroRequerimiento)), ''), '-') AS NumeroRequerimiento,
+    COALESCE(NULLIF(LTRIM(RTRIM(espAgg.Especialidad)), ''), NULLIF(LTRIM(RTRIM(e.Nombre)), ''), '-') AS Especialidad,
+    COALESCE(NULLIF(LTRIM(RTRIM(pr.NombreProyecto)), ''), '-') AS NombreProyecto
 FROM compras.OrdenCompra oc
 LEFT JOIN compras.Requerimiento r ON r.IdRequerimiento = oc.IdRequerimiento
 LEFT JOIN maestra.Proveedor p ON p.IdProveedor = oc.IdProveedor
 LEFT JOIN maestra.Especialidad e ON e.IdEspecialidad = r.IdEspecialidad
-LEFT JOIN maestra.Proyecto pr ON pr.IdProyecto = oc.IdProyecto
+LEFT JOIN maestra.Proyecto pr ON pr.IdProyecto = COALESCE(oc.IdProyecto, r.IdProyecto)
+OUTER APPLY (
+    SELECT STRING_AGG(x.Nombre, ', ') AS Especialidad
+    FROM (
+        SELECT DISTINCT e2.Nombre
+        FROM compras.OrdenCompraDetalle od
+        INNER JOIN maestra.Material m ON m.IdMaterial = od.IdMaterial
+        INNER JOIN maestra.Especialidad e2 ON e2.IdEspecialidad = m.IdEspecialidad
+        WHERE od.IdOrdenCompra = oc.IdOrdenCompra
+    ) x
+) espAgg
 LEFT JOIN compras.Compra c ON c.IdOrdenCompra = oc.IdOrdenCompra
 WHERE c.IdCompra IS NULL
 ORDER BY oc.IdOrdenCompra DESC";
@@ -125,16 +145,26 @@ SELECT
     c.Observacion,
     c.IdOrdenCompra,
     oc.NumeroOrdenCompra,
-    r.NumeroRequerimiento,
+    COALESCE(NULLIF(LTRIM(RTRIM(r.NumeroRequerimiento)), ''), '-') AS NumeroRequerimiento,
     p.RazonSocial AS Proveedor,
-    e.Nombre AS Especialidad,
-    pr.NombreProyecto
+    COALESCE(NULLIF(LTRIM(RTRIM(espAgg.Especialidad)), ''), NULLIF(LTRIM(RTRIM(e.Nombre)), ''), '-') AS Especialidad,
+    COALESCE(NULLIF(LTRIM(RTRIM(pr.NombreProyecto)), ''), '-') AS NombreProyecto
 FROM compras.Compra c
 INNER JOIN compras.OrdenCompra oc ON oc.IdOrdenCompra = c.IdOrdenCompra
 LEFT JOIN compras.Requerimiento r ON r.IdRequerimiento = oc.IdRequerimiento
 LEFT JOIN maestra.Proveedor p ON p.IdProveedor = c.IdProveedor
 LEFT JOIN maestra.Especialidad e ON e.IdEspecialidad = r.IdEspecialidad
-LEFT JOIN maestra.Proyecto pr ON pr.IdProyecto = r.IdProyecto
+LEFT JOIN maestra.Proyecto pr ON pr.IdProyecto = COALESCE(oc.IdProyecto, r.IdProyecto)
+OUTER APPLY (
+    SELECT STRING_AGG(x.Nombre, ', ') AS Especialidad
+    FROM (
+        SELECT DISTINCT e2.Nombre
+        FROM compras.OrdenCompraDetalle od
+        INNER JOIN maestra.Material m ON m.IdMaterial = od.IdMaterial
+        INNER JOIN maestra.Especialidad e2 ON e2.IdEspecialidad = m.IdEspecialidad
+        WHERE od.IdOrdenCompra = oc.IdOrdenCompra
+    ) x
+) espAgg
 WHERE c.IdCompra = @IdCompra", new { IdCompra = idCompra });
 
             if (compra == null) return null;
@@ -278,7 +308,7 @@ VALUES
                     NombreArchivo = doc.NombreArchivo,
                     RutaArchivo = doc.RutaArchivo,
                     Extension = doc.Extension,
-                    TipoDocumento = "PDF"
+                    TipoDocumento = "Factura"
                 });
             }
         }

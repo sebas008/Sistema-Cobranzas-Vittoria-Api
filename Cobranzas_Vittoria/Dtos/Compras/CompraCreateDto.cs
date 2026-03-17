@@ -8,4 +8,12 @@ public class CompraCreateDto
     public DateTime FechaCompra { get; set; }
     public decimal MontoTotal { get; set; }
     public string? Observacion { get; set; }
+    public List<CompraDetalleCreateDto> Items { get; set; } = new();
+}
+
+public class CompraDetalleCreateDto
+{
+    public int IdMaterial { get; set; }
+    public decimal Cantidad { get; set; }
+    public decimal PrecioUnitario { get; set; }
 }

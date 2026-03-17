@@ -14,25 +14,132 @@ namespace Cobranzas_Vittoria.Repositories
         public async Task<IEnumerable<Requerimiento>> ListAsync(string? estado, int? idEspecialidad, int? idProyecto)
         {
             using var db = Open();
-            return await db.QueryAsync<Requerimiento>(
-                "compras.usp_Requerimiento_List",
-                new { Estado = estado, IdEspecialidad = idEspecialidad, IdProyecto = idProyecto },
-                commandType: CommandType.StoredProcedure
-            );
+
+            const string sql = @"
+SELECT
+    r.IdRequerimiento,
+    r.NumeroRequerimiento,
+    r.FechaRequerimiento,
+    r.IdEspecialidad,
+    eb.Nombre AS Especialidad,
+    x.Especialidades,
+    r.IdProyecto,
+    p.NombreProyecto,
+    r.Descripcion,
+    r.FechaEntrega,
+    r.IdUsuarioSolicitante,
+    LTRIM(RTRIM(CONCAT(u.Nombres, ' ', ISNULL(u.Apellidos, '')))) AS Solicitante,
+    r.Estado,
+    r.Observacion,
+    r.FechaCreacion
+FROM compras.Requerimiento r
+INNER JOIN maestra.Especialidad eb ON eb.IdEspecialidad = r.IdEspecialidad
+INNER JOIN maestra.Proyecto p ON p.IdProyecto = r.IdProyecto
+INNER JOIN seguridad.Usuario u ON u.IdUsuario = r.IdUsuarioSolicitante
+OUTER APPLY (
+    SELECT STRING_AGG(q.Nombre, ', ') AS Especialidades
+    FROM (
+        SELECT DISTINCT e2.Nombre
+        FROM compras.RequerimientoDetalle rd2
+        INNER JOIN maestra.Material m2 ON m2.IdMaterial = rd2.IdMaterial
+        INNER JOIN maestra.Especialidad e2 ON e2.IdEspecialidad = m2.IdEspecialidad
+        WHERE rd2.IdRequerimiento = r.IdRequerimiento
+    ) q
+) x
+WHERE (@Estado IS NULL OR @Estado = '' OR r.Estado = @Estado)
+  AND (@IdProyecto IS NULL OR r.IdProyecto = @IdProyecto)
+  AND (@IdEspecialidad IS NULL OR EXISTS (
+        SELECT 1
+        FROM compras.RequerimientoDetalle rd2
+        INNER JOIN maestra.Material m2 ON m2.IdMaterial = rd2.IdMaterial
+        WHERE rd2.IdRequerimiento = r.IdRequerimiento
+          AND m2.IdEspecialidad = @IdEspecialidad
+  ))
+GROUP BY
+    x.Especialidades,
+    r.IdRequerimiento,
+    r.NumeroRequerimiento,
+    r.FechaRequerimiento,
+    r.IdEspecialidad,
+    eb.Nombre,
+    r.IdProyecto,
+    p.NombreProyecto,
+    r.Descripcion,
+    r.FechaEntrega,
+    r.IdUsuarioSolicitante,
+    u.Nombres,
+    u.Apellidos,
+    r.Estado,
+    r.Observacion,
+    r.FechaCreacion
+ORDER BY r.IdRequerimiento DESC;";
+
+            return await db.QueryAsync<Requerimiento>(sql, new { Estado = estado, IdEspecialidad = idEspecialidad, IdProyecto = idProyecto });
         }
 
         public async Task<(Requerimiento? head, List<RequerimientoDetalle> items, List<RequerimientoValidacion> validaciones)> GetAsync(int idRequerimiento)
         {
             using var db = Open();
-            using var multi = await db.QueryMultipleAsync(
-                "compras.usp_Requerimiento_Get",
-                new { IdRequerimiento = idRequerimiento },
-                commandType: CommandType.StoredProcedure
-            );
 
-            var head = await multi.ReadFirstOrDefaultAsync<Requerimiento>();
-            var items = (await multi.ReadAsync<RequerimientoDetalle>()).AsList();
-            var validaciones = (await multi.ReadAsync<RequerimientoValidacion>()).AsList();
+            const string sqlHead = @"
+SELECT
+    r.IdRequerimiento,
+    r.NumeroRequerimiento,
+    r.FechaRequerimiento,
+    r.IdEspecialidad,
+    eb.Nombre AS Especialidad,
+    x.Especialidades,
+    r.IdProyecto,
+    p.NombreProyecto,
+    r.Descripcion,
+    r.FechaEntrega,
+    r.IdUsuarioSolicitante,
+    LTRIM(RTRIM(CONCAT(u.Nombres, ' ', ISNULL(u.Apellidos, '')))) AS Solicitante,
+    r.Estado,
+    r.Observacion,
+    r.FechaCreacion
+FROM compras.Requerimiento r
+INNER JOIN maestra.Especialidad eb ON eb.IdEspecialidad = r.IdEspecialidad
+INNER JOIN maestra.Proyecto p ON p.IdProyecto = r.IdProyecto
+INNER JOIN seguridad.Usuario u ON u.IdUsuario = r.IdUsuarioSolicitante
+OUTER APPLY (
+    SELECT STRING_AGG(es.Nombre, ', ') AS Especialidades
+    FROM (
+        SELECT DISTINCT e2.Nombre
+        FROM compras.RequerimientoDetalle rd2
+        INNER JOIN maestra.Material m2 ON m2.IdMaterial = rd2.IdMaterial
+        INNER JOIN maestra.Especialidad e2 ON e2.IdEspecialidad = m2.IdEspecialidad
+        WHERE rd2.IdRequerimiento = r.IdRequerimiento
+    ) es
+) x
+WHERE r.IdRequerimiento = @IdRequerimiento;";
+
+            const string sqlItems = @"
+SELECT
+    rd.IdRequerimientoDetalle,
+    rd.IdRequerimiento,
+    rd.IdMaterial,
+    m.IdEspecialidad,
+    e.Nombre AS Especialidad,
+    m.Descripcion AS Material,
+    m.UnidadMedida,
+    rd.Cantidad,
+    rd.Observacion
+FROM compras.RequerimientoDetalle rd
+INNER JOIN maestra.Material m ON m.IdMaterial = rd.IdMaterial
+INNER JOIN maestra.Especialidad e ON e.IdEspecialidad = m.IdEspecialidad
+WHERE rd.IdRequerimiento = @IdRequerimiento
+ORDER BY rd.IdRequerimientoDetalle;";
+
+            const string sqlValidaciones = @"
+SELECT *
+FROM compras.RequerimientoValidacion
+WHERE IdRequerimiento = @IdRequerimiento
+ORDER BY FechaValidacion DESC;";
+
+            var head = await db.QueryFirstOrDefaultAsync<Requerimiento>(sqlHead, new { IdRequerimiento = idRequerimiento });
+            var items = (await db.QueryAsync<RequerimientoDetalle>(sqlItems, new { IdRequerimiento = idRequerimiento })).AsList();
+            var validaciones = (await db.QueryAsync<RequerimientoValidacion>(sqlValidaciones, new { IdRequerimiento = idRequerimiento })).AsList();
 
             return (head, items, validaciones);
         }
