@@ -1,6 +1,8 @@
 using Cobranzas_Vittoria.Data;
+using Cobranzas_Vittoria.Dtos.Compras;
 using Cobranzas_Vittoria.Interfaces;
 using Dapper;
+using System.Data;
 using System.Linq;
 
 namespace Cobranzas_Vittoria.Repositories
@@ -19,19 +21,32 @@ SELECT
     c.NumeroCompra,
     c.FechaCompra,
     CASE WHEN c.Aceptada = 1 THEN 'Aceptada' ELSE 'Pendiente' END AS Estado,
+    c.IncluyeIGV,
+    c.SubtotalSinIGV,
+    c.MontoIGV,
     c.MontoTotal,
     c.Observacion,
     p.RazonSocial AS Proveedor,
-    e.Nombre AS Especialidad,
-    pr.NombreProyecto,
-    oc.NumeroOrdenCompra,
-    r.NumeroRequerimiento
+    COALESCE(NULLIF(LTRIM(RTRIM(r.NumeroRequerimiento)), ''), '-') AS NumeroRequerimiento,
+    COALESCE(NULLIF(LTRIM(RTRIM(pr.NombreProyecto)), ''), '-') AS NombreProyecto,
+    COALESCE(NULLIF(LTRIM(RTRIM(espAgg.Especialidad)), ''), NULLIF(LTRIM(RTRIM(e.Nombre)), ''), '-') AS Especialidad,
+    oc.NumeroOrdenCompra
 FROM compras.Compra c
 INNER JOIN compras.OrdenCompra oc ON oc.IdOrdenCompra = c.IdOrdenCompra
 LEFT JOIN compras.Requerimiento r ON r.IdRequerimiento = oc.IdRequerimiento
 LEFT JOIN maestra.Proveedor p ON p.IdProveedor = c.IdProveedor
 LEFT JOIN maestra.Especialidad e ON e.IdEspecialidad = r.IdEspecialidad
-LEFT JOIN maestra.Proyecto pr ON pr.IdProyecto = r.IdProyecto
+LEFT JOIN maestra.Proyecto pr ON pr.IdProyecto = COALESCE(oc.IdProyecto, r.IdProyecto)
+OUTER APPLY (
+    SELECT STRING_AGG(x.Nombre, ', ') AS Especialidad
+    FROM (
+        SELECT DISTINCT e2.Nombre
+        FROM compras.OrdenCompraDetalle od
+        INNER JOIN maestra.Material m ON m.IdMaterial = od.IdMaterial
+        INNER JOIN maestra.Especialidad e2 ON e2.IdEspecialidad = m.IdEspecialidad
+        WHERE od.IdOrdenCompra = oc.IdOrdenCompra
+    ) x
+) espAgg
 WHERE (@Aceptada IS NULL OR c.Aceptada = @Aceptada)
   AND (@IdProveedor IS NULL OR c.IdProveedor = @IdProveedor)
 ORDER BY c.IdCompra DESC";
@@ -39,11 +54,44 @@ ORDER BY c.IdCompra DESC";
             return await db.QueryAsync(sql, new { Aceptada = aceptada, IdProveedor = idProveedor });
         }
 
-        public async Task<(int IdCompra, decimal MontoTotal)> CrearAsync(Cobranzas_Vittoria.Dtos.Compras.CompraCreateDto dto)
+        public async Task<(int IdCompra, decimal MontoTotal)> CrearAsync(CompraCreateDto dto)
         {
             using var db = Open();
+            using var tx = db.BeginTransaction();
 
-            const string sql = @"
+            var subtotalSinIgv = dto.SubtotalSinIGV;
+            var montoIgv = dto.MontoIGV;
+            var montoTotal = dto.MontoTotal;
+
+            if (dto.Items != null && dto.Items.Count > 0)
+            {
+                var calculado = dto.Items.Sum(x => x.Cantidad * x.PrecioUnitario);
+                if (subtotalSinIgv <= 0 && montoTotal > 0 && dto.IncluyeIGV)
+                {
+                    subtotalSinIgv = Math.Round(montoTotal / 1.18m, 2);
+                    montoIgv = Math.Round(montoTotal - subtotalSinIgv, 2);
+                }
+                else if (subtotalSinIgv <= 0)
+                {
+                    subtotalSinIgv = Math.Round(calculado, 2);
+                }
+
+                if (dto.IncluyeIGV)
+                {
+                    if (montoTotal <= 0)
+                        montoTotal = Math.Round(subtotalSinIgv + montoIgv, 2);
+                    if (montoIgv <= 0)
+                        montoIgv = Math.Round(montoTotal - subtotalSinIgv, 2);
+                }
+                else
+                {
+                    montoIgv = 0;
+                    if (montoTotal <= 0)
+                        montoTotal = Math.Round(subtotalSinIgv, 2);
+                }
+            }
+
+            const string sqlCompra = @"
 INSERT INTO compras.Compra
 (
     NumeroCompra,
@@ -51,6 +99,9 @@ INSERT INTO compras.Compra
     IdProveedor,
     FechaCompra,
     Aceptada,
+    IncluyeIGV,
+    SubtotalSinIGV,
+    MontoIGV,
     MontoTotal,
     Observacion,
     FechaCreacion
@@ -62,24 +113,48 @@ VALUES
     @IdProveedor,
     @FechaCompra,
     0,
+    @IncluyeIGV,
+    @SubtotalSinIGV,
+    @MontoIGV,
     @MontoTotal,
     @Observacion,
     GETDATE()
 );
-
 SELECT CAST(SCOPE_IDENTITY() AS INT);";
 
-            var idCompra = await db.ExecuteScalarAsync<int>(sql, new
+            var idCompra = await db.ExecuteScalarAsync<int>(sqlCompra, new
             {
                 dto.NumeroCompra,
                 dto.IdOrdenCompra,
                 dto.IdProveedor,
-                dto.FechaCompra,
-                dto.MontoTotal,
+                FechaCompra = dto.FechaCompra.Date,
+                IncluyeIGV = dto.IncluyeIGV,
+                SubtotalSinIGV = subtotalSinIgv,
+                MontoIGV = montoIgv,
+                MontoTotal = montoTotal,
                 dto.Observacion
-            });
+            }, tx);
 
-            return (idCompra, dto.MontoTotal);
+            if (dto.Items != null && dto.Items.Count > 0)
+            {
+                const string sqlDetalle = @"
+INSERT INTO compras.CompraDetalle (IdCompra, IdMaterial, Cantidad, PrecioUnitario)
+VALUES (@IdCompra, @IdMaterial, @Cantidad, @PrecioUnitario);";
+
+                foreach (var item in dto.Items)
+                {
+                    await db.ExecuteAsync(sqlDetalle, new
+                    {
+                        IdCompra = idCompra,
+                        item.IdMaterial,
+                        item.Cantidad,
+                        item.PrecioUnitario
+                    }, tx);
+                }
+            }
+
+            tx.Commit();
+            return (idCompra, montoTotal);
         }
 
         public async Task<IEnumerable<dynamic>> ListPendientesDesdeOcAsync()
@@ -96,14 +171,24 @@ SELECT
     oc.IdProveedor,
     p.RazonSocial AS Proveedor,
     r.IdRequerimiento,
-    r.NumeroRequerimiento,
-    e.Nombre AS Especialidad,
-    pr.NombreProyecto
+    COALESCE(NULLIF(LTRIM(RTRIM(r.NumeroRequerimiento)), ''), '-') AS NumeroRequerimiento,
+    COALESCE(NULLIF(LTRIM(RTRIM(espAgg.Especialidad)), ''), NULLIF(LTRIM(RTRIM(e.Nombre)), ''), '-') AS Especialidad,
+    COALESCE(NULLIF(LTRIM(RTRIM(pr.NombreProyecto)), ''), '-') AS NombreProyecto
 FROM compras.OrdenCompra oc
 LEFT JOIN compras.Requerimiento r ON r.IdRequerimiento = oc.IdRequerimiento
 LEFT JOIN maestra.Proveedor p ON p.IdProveedor = oc.IdProveedor
 LEFT JOIN maestra.Especialidad e ON e.IdEspecialidad = r.IdEspecialidad
-LEFT JOIN maestra.Proyecto pr ON pr.IdProyecto = oc.IdProyecto
+LEFT JOIN maestra.Proyecto pr ON pr.IdProyecto = COALESCE(oc.IdProyecto, r.IdProyecto)
+OUTER APPLY (
+    SELECT STRING_AGG(x.Nombre, ', ') AS Especialidad
+    FROM (
+        SELECT DISTINCT e2.Nombre
+        FROM compras.OrdenCompraDetalle od
+        INNER JOIN maestra.Material m ON m.IdMaterial = od.IdMaterial
+        INNER JOIN maestra.Especialidad e2 ON e2.IdEspecialidad = m.IdEspecialidad
+        WHERE od.IdOrdenCompra = oc.IdOrdenCompra
+    ) x
+) espAgg
 LEFT JOIN compras.Compra c ON c.IdOrdenCompra = oc.IdOrdenCompra
 WHERE c.IdCompra IS NULL
 ORDER BY oc.IdOrdenCompra DESC";
@@ -121,38 +206,51 @@ SELECT
     c.NumeroCompra,
     c.FechaCompra,
     CASE WHEN c.Aceptada = 1 THEN 'Aceptada' ELSE 'Pendiente' END AS Estado,
+    c.IncluyeIGV,
+    c.SubtotalSinIGV,
+    c.MontoIGV,
     c.MontoTotal,
     c.Observacion,
     c.IdOrdenCompra,
     oc.NumeroOrdenCompra,
-    r.NumeroRequerimiento,
+    COALESCE(NULLIF(LTRIM(RTRIM(r.NumeroRequerimiento)), ''), '-') AS NumeroRequerimiento,
     p.RazonSocial AS Proveedor,
-    e.Nombre AS Especialidad,
-    pr.NombreProyecto
+    COALESCE(NULLIF(LTRIM(RTRIM(espAgg.Especialidad)), ''), NULLIF(LTRIM(RTRIM(e.Nombre)), ''), '-') AS Especialidad,
+    COALESCE(NULLIF(LTRIM(RTRIM(pr.NombreProyecto)), ''), '-') AS NombreProyecto
 FROM compras.Compra c
 INNER JOIN compras.OrdenCompra oc ON oc.IdOrdenCompra = c.IdOrdenCompra
 LEFT JOIN compras.Requerimiento r ON r.IdRequerimiento = oc.IdRequerimiento
 LEFT JOIN maestra.Proveedor p ON p.IdProveedor = c.IdProveedor
 LEFT JOIN maestra.Especialidad e ON e.IdEspecialidad = r.IdEspecialidad
-LEFT JOIN maestra.Proyecto pr ON pr.IdProyecto = r.IdProyecto
+LEFT JOIN maestra.Proyecto pr ON pr.IdProyecto = COALESCE(oc.IdProyecto, r.IdProyecto)
+OUTER APPLY (
+    SELECT STRING_AGG(x.Nombre, ', ') AS Especialidad
+    FROM (
+        SELECT DISTINCT e2.Nombre
+        FROM compras.OrdenCompraDetalle od
+        INNER JOIN maestra.Material m ON m.IdMaterial = od.IdMaterial
+        INNER JOIN maestra.Especialidad e2 ON e2.IdEspecialidad = m.IdEspecialidad
+        WHERE od.IdOrdenCompra = oc.IdOrdenCompra
+    ) x
+) espAgg
 WHERE c.IdCompra = @IdCompra", new { IdCompra = idCompra });
 
             if (compra == null) return null;
 
             var items = await db.QueryAsync(@"
 SELECT
-    d.IdOrdenCompraDetalle,
+    d.IdCompraDetalle,
+    d.IdCompra,
     d.IdMaterial,
     m.Descripcion AS Material,
     m.UnidadMedida,
     d.Cantidad,
     d.PrecioUnitario,
-    (d.Cantidad * d.PrecioUnitario) AS Subtotal
-FROM compras.Compra c
-INNER JOIN compras.OrdenCompra oc ON oc.IdOrdenCompra = c.IdOrdenCompra
-INNER JOIN compras.OrdenCompraDetalle d ON d.IdOrdenCompra = oc.IdOrdenCompra
+    d.Subtotal
+FROM compras.CompraDetalle d
 INNER JOIN maestra.Material m ON m.IdMaterial = d.IdMaterial
-WHERE c.IdCompra = @IdCompra", new { IdCompra = idCompra });
+WHERE d.IdCompra = @IdCompra
+ORDER BY d.IdCompraDetalle", new { IdCompra = idCompra });
 
             var documentos = await GetDocumentosAsync(idCompra);
 
@@ -174,10 +272,10 @@ ORDER BY ORDINAL_POSITION")).ToList();
 
             var colId = Pick("IdCompraDocumento");
             var colIdCompra = Pick("IdCompra");
-            var colNombre = Pick("NombreArchivo", "NombreDocumento", "Nombre", "Archivo");
+            var colNombre = Pick("NombreArchivo", "NombreDocumento", "Nombre", "Archivo", "NumeroDocumento");
             var colRuta = Pick("RutaArchivo", "RutaDocumento", "Ruta", "UrlArchivo", "ArchivoRuta", "PathArchivo");
             var colExt = Pick("Extension", "Ext", "TipoArchivo", "Tipo");
-            var colFecha = Pick("FechaCreacion", "FechaRegistro", "Fecha", "FechaCarga");
+            var colFecha = Pick("FechaCreacion", "FechaRegistro", "Fecha", "FechaCarga", "FechaDocumento");
             var colTipoDocumento = Pick("TipoDocumento");
 
             if (string.IsNullOrWhiteSpace(colIdCompra))
@@ -223,18 +321,14 @@ ORDER BY ORDINAL_POSITION")).ToList();
             string Pick(params string[] names) =>
                 cols.FirstOrDefault(c => names.Any(n => string.Equals(n, c, StringComparison.OrdinalIgnoreCase))) ?? string.Empty;
 
-            bool IsNullable(string columnName)
-            {
-                var row = meta.FirstOrDefault(x => string.Equals((string)x.ColumnName, columnName, StringComparison.OrdinalIgnoreCase));
-                return row != null && string.Equals((string)row.IsNullable, "YES", StringComparison.OrdinalIgnoreCase);
-            }
-
             var colIdCompra = Pick("IdCompra");
-            var colNombre = Pick("NombreArchivo", "NombreDocumento", "Nombre", "Archivo");
+            var colNombre = Pick("NombreArchivo", "NombreDocumento", "Nombre", "Archivo", "NumeroDocumento");
             var colRuta = Pick("RutaArchivo", "RutaDocumento", "Ruta", "UrlArchivo", "ArchivoRuta", "PathArchivo");
             var colExt = Pick("Extension", "Ext", "TipoArchivo", "Tipo");
-            var colFecha = Pick("FechaCreacion", "FechaRegistro", "Fecha", "FechaCarga");
+            var colFecha = Pick("FechaCreacion", "FechaRegistro", "Fecha", "FechaCarga", "FechaDocumento");
             var colTipoDocumento = Pick("TipoDocumento");
+            var colMonto = Pick("Monto");
+            var colObs = Pick("Observacion");
 
             if (string.IsNullOrWhiteSpace(colIdCompra) || string.IsNullOrWhiteSpace(colNombre) || string.IsNullOrWhiteSpace(colRuta))
                 throw new InvalidOperationException("La tabla compras.CompraDocumento no tiene las columnas mínimas requeridas para guardar documentos.");
@@ -262,6 +356,18 @@ ORDER BY ORDINAL_POSITION")).ToList();
                     values.Add("GETDATE()");
                 }
 
+                if (!string.IsNullOrWhiteSpace(colMonto))
+                {
+                    columns.Add($"[{colMonto}]");
+                    values.Add("0");
+                }
+
+                if (!string.IsNullOrWhiteSpace(colObs))
+                {
+                    columns.Add($"[{colObs}]");
+                    values.Add("NULL");
+                }
+
                 var sql = $@"
 INSERT INTO compras.CompraDocumento
 (
@@ -278,7 +384,7 @@ VALUES
                     NombreArchivo = doc.NombreArchivo,
                     RutaArchivo = doc.RutaArchivo,
                     Extension = doc.Extension,
-                    TipoDocumento = "PDF"
+                    TipoDocumento = "Factura"
                 });
             }
         }

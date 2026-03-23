@@ -6,6 +6,7 @@ public class Requerimiento
     public DateTime FechaRequerimiento { get; set; }
     public int IdEspecialidad { get; set; }
     public string? Especialidad { get; set; }
+    public string? Especialidades { get; set; }
     public int IdProyecto { get; set; }
     public string? NombreProyecto { get; set; }
     public string? Descripcion { get; set; }
