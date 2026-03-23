@@ -3,6 +3,7 @@ using Cobranzas_Vittoria.Dtos.Compras;
 using Cobranzas_Vittoria.Interfaces;
 using Dapper;
 using System.Data;
+using System.IO;
 using System.Linq;
 
 namespace Cobranzas_Vittoria.Repositories
@@ -20,26 +21,30 @@ SELECT
     c.IdCompra,
     c.NumeroCompra,
     c.FechaCompra,
-    CASE WHEN c.Aceptada = 1 THEN 'Aceptada' ELSE 'Pendiente' END AS Estado,
+    CAST('Comprado' AS NVARCHAR(20)) AS Estado,
     c.IncluyeIGV,
     c.SubtotalSinIGV,
     c.MontoIGV,
     c.MontoTotal,
     c.Observacion,
+    c.IdOrdenCompra,
+    c.IdProveedor,
+    oc.NumeroOrdenCompra,
     p.RazonSocial AS Proveedor,
     COALESCE(NULLIF(LTRIM(RTRIM(r.NumeroRequerimiento)), ''), '-') AS NumeroRequerimiento,
     COALESCE(NULLIF(LTRIM(RTRIM(pr.NombreProyecto)), ''), '-') AS NombreProyecto,
-    COALESCE(NULLIF(LTRIM(RTRIM(espAgg.Especialidad)), ''), NULLIF(LTRIM(RTRIM(e.Nombre)), ''), '-') AS Especialidad,
-    oc.NumeroOrdenCompra
+    COALESCE(NULLIF(LTRIM(RTRIM(espAgg.Especialidad)), ''), NULLIF(LTRIM(RTRIM(e.Nombre)), ''), '-') AS Especialidad
 FROM compras.Compra c
 INNER JOIN compras.OrdenCompra oc ON oc.IdOrdenCompra = c.IdOrdenCompra
 LEFT JOIN compras.Requerimiento r ON r.IdRequerimiento = oc.IdRequerimiento
 LEFT JOIN maestra.Proveedor p ON p.IdProveedor = c.IdProveedor
 LEFT JOIN maestra.Especialidad e ON e.IdEspecialidad = r.IdEspecialidad
 LEFT JOIN maestra.Proyecto pr ON pr.IdProyecto = COALESCE(oc.IdProyecto, r.IdProyecto)
-OUTER APPLY (
+OUTER APPLY
+(
     SELECT STRING_AGG(x.Nombre, ', ') AS Especialidad
-    FROM (
+    FROM
+    (
         SELECT DISTINCT e2.Nombre
         FROM compras.OrdenCompraDetalle od
         INNER JOIN maestra.Material m ON m.IdMaterial = od.IdMaterial
@@ -49,7 +54,7 @@ OUTER APPLY (
 ) espAgg
 WHERE (@Aceptada IS NULL OR c.Aceptada = @Aceptada)
   AND (@IdProveedor IS NULL OR c.IdProveedor = @IdProveedor)
-ORDER BY c.IdCompra DESC";
+ORDER BY c.IdCompra DESC;";
 
             return await db.QueryAsync(sql, new { Aceptada = aceptada, IdProveedor = idProveedor });
         }
@@ -59,36 +64,35 @@ ORDER BY c.IdCompra DESC";
             using var db = Open();
             using var tx = db.BeginTransaction();
 
-            var subtotalSinIgv = dto.SubtotalSinIGV;
-            var montoIgv = dto.MontoIGV;
-            var montoTotal = dto.MontoTotal;
+            var numeroCompra = (dto.NumeroCompra ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(numeroCompra))
+                throw new InvalidOperationException("Debes ingresar el número de compra.");
 
-            if (dto.Items != null && dto.Items.Count > 0)
+            var existe = await db.ExecuteScalarAsync<int>(
+                "SELECT COUNT(1) FROM compras.Compra WHERE NumeroCompra = @NumeroCompra",
+                new { NumeroCompra = numeroCompra }, tx);
+
+            if (existe > 0)
+                throw new InvalidOperationException($"Ya existe una compra con el número {numeroCompra}. Usa otro número.");
+
+            var montoBaseConIgv = (dto.Items ?? new List<CompraDetalleCreateDto>())
+                .Sum(x => x.Cantidad * x.PrecioUnitario);
+
+            decimal subtotalSinIgv;
+            decimal montoIgv;
+            decimal montoTotal;
+
+            if (dto.IncluyeIGV)
             {
-                var calculado = dto.Items.Sum(x => x.Cantidad * x.PrecioUnitario);
-                if (subtotalSinIgv <= 0 && montoTotal > 0 && dto.IncluyeIGV)
-                {
-                    subtotalSinIgv = Math.Round(montoTotal / 1.18m, 2);
-                    montoIgv = Math.Round(montoTotal - subtotalSinIgv, 2);
-                }
-                else if (subtotalSinIgv <= 0)
-                {
-                    subtotalSinIgv = Math.Round(calculado, 2);
-                }
-
-                if (dto.IncluyeIGV)
-                {
-                    if (montoTotal <= 0)
-                        montoTotal = Math.Round(subtotalSinIgv + montoIgv, 2);
-                    if (montoIgv <= 0)
-                        montoIgv = Math.Round(montoTotal - subtotalSinIgv, 2);
-                }
-                else
-                {
-                    montoIgv = 0;
-                    if (montoTotal <= 0)
-                        montoTotal = Math.Round(subtotalSinIgv, 2);
-                }
+                montoTotal = Math.Round(montoBaseConIgv, 2);
+                subtotalSinIgv = Math.Round(montoTotal / 1.18m, 2);
+                montoIgv = Math.Round(montoTotal - subtotalSinIgv, 2);
+            }
+            else
+            {
+                subtotalSinIgv = Math.Round(montoBaseConIgv / 1.18m, 2);
+                montoIgv = 0;
+                montoTotal = subtotalSinIgv;
             }
 
             const string sqlCompra = @"
@@ -124,7 +128,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
 
             var idCompra = await db.ExecuteScalarAsync<int>(sqlCompra, new
             {
-                dto.NumeroCompra,
+                NumeroCompra = numeroCompra,
                 dto.IdOrdenCompra,
                 dto.IdProveedor,
                 FechaCompra = dto.FechaCompra.Date,
@@ -179,9 +183,11 @@ LEFT JOIN compras.Requerimiento r ON r.IdRequerimiento = oc.IdRequerimiento
 LEFT JOIN maestra.Proveedor p ON p.IdProveedor = oc.IdProveedor
 LEFT JOIN maestra.Especialidad e ON e.IdEspecialidad = r.IdEspecialidad
 LEFT JOIN maestra.Proyecto pr ON pr.IdProyecto = COALESCE(oc.IdProyecto, r.IdProyecto)
-OUTER APPLY (
+OUTER APPLY
+(
     SELECT STRING_AGG(x.Nombre, ', ') AS Especialidad
-    FROM (
+    FROM
+    (
         SELECT DISTINCT e2.Nombre
         FROM compras.OrdenCompraDetalle od
         INNER JOIN maestra.Material m ON m.IdMaterial = od.IdMaterial
@@ -191,7 +197,7 @@ OUTER APPLY (
 ) espAgg
 LEFT JOIN compras.Compra c ON c.IdOrdenCompra = oc.IdOrdenCompra
 WHERE c.IdCompra IS NULL
-ORDER BY oc.IdOrdenCompra DESC";
+ORDER BY oc.IdOrdenCompra DESC;";
 
             return await db.QueryAsync(sql);
         }
@@ -205,7 +211,7 @@ SELECT
     c.IdCompra,
     c.NumeroCompra,
     c.FechaCompra,
-    CASE WHEN c.Aceptada = 1 THEN 'Aceptada' ELSE 'Pendiente' END AS Estado,
+    CAST('Comprado' AS NVARCHAR(20)) AS Estado,
     c.IncluyeIGV,
     c.SubtotalSinIGV,
     c.MontoIGV,
@@ -223,9 +229,11 @@ LEFT JOIN compras.Requerimiento r ON r.IdRequerimiento = oc.IdRequerimiento
 LEFT JOIN maestra.Proveedor p ON p.IdProveedor = c.IdProveedor
 LEFT JOIN maestra.Especialidad e ON e.IdEspecialidad = r.IdEspecialidad
 LEFT JOIN maestra.Proyecto pr ON pr.IdProyecto = COALESCE(oc.IdProyecto, r.IdProyecto)
-OUTER APPLY (
+OUTER APPLY
+(
     SELECT STRING_AGG(x.Nombre, ', ') AS Especialidad
-    FROM (
+    FROM
+    (
         SELECT DISTINCT e2.Nombre
         FROM compras.OrdenCompraDetalle od
         INNER JOIN maestra.Material m ON m.IdMaterial = od.IdMaterial
@@ -233,9 +241,10 @@ OUTER APPLY (
         WHERE od.IdOrdenCompra = oc.IdOrdenCompra
     ) x
 ) espAgg
-WHERE c.IdCompra = @IdCompra", new { IdCompra = idCompra });
+WHERE c.IdCompra = @IdCompra;", new { IdCompra = idCompra });
 
-            if (compra == null) return null;
+            if (compra == null)
+                return null;
 
             var items = await db.QueryAsync(@"
 SELECT
@@ -246,11 +255,20 @@ SELECT
     m.UnidadMedida,
     d.Cantidad,
     d.PrecioUnitario,
-    d.Subtotal
+    d.Subtotal,
+    ISNULL(od.IdProveedor, oc.IdProveedor) AS IdProveedor,
+    p.RazonSocial AS Proveedor
 FROM compras.CompraDetalle d
 INNER JOIN maestra.Material m ON m.IdMaterial = d.IdMaterial
+INNER JOIN compras.Compra c ON c.IdCompra = d.IdCompra
+INNER JOIN compras.OrdenCompra oc ON oc.IdOrdenCompra = c.IdOrdenCompra
+LEFT JOIN compras.OrdenCompraDetalle od
+    ON od.IdOrdenCompra = oc.IdOrdenCompra
+   AND od.IdMaterial = d.IdMaterial
+LEFT JOIN maestra.Proveedor p
+    ON p.IdProveedor = ISNULL(od.IdProveedor, oc.IdProveedor)
 WHERE d.IdCompra = @IdCompra
-ORDER BY d.IdCompraDetalle", new { IdCompra = idCompra });
+ORDER BY d.IdCompraDetalle;", new { IdCompra = idCompra });
 
             var documentos = await GetDocumentosAsync(idCompra);
 
@@ -260,131 +278,63 @@ ORDER BY d.IdCompraDetalle", new { IdCompra = idCompra });
         public async Task<IEnumerable<dynamic>> GetDocumentosAsync(int idCompra)
         {
             using var db = Open();
-            var cols = (await db.QueryAsync<string>(@"
-SELECT COLUMN_NAME
-FROM INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_SCHEMA = 'compras'
-  AND TABLE_NAME = 'CompraDocumento'
-ORDER BY ORDINAL_POSITION")).ToList();
 
-            string Pick(params string[] names) =>
-                cols.FirstOrDefault(c => names.Any(n => string.Equals(n, c, StringComparison.OrdinalIgnoreCase))) ?? string.Empty;
-
-            var colId = Pick("IdCompraDocumento");
-            var colIdCompra = Pick("IdCompra");
-            var colNombre = Pick("NombreArchivo", "NombreDocumento", "Nombre", "Archivo", "NumeroDocumento");
-            var colRuta = Pick("RutaArchivo", "RutaDocumento", "Ruta", "UrlArchivo", "ArchivoRuta", "PathArchivo");
-            var colExt = Pick("Extension", "Ext", "TipoArchivo", "Tipo");
-            var colFecha = Pick("FechaCreacion", "FechaRegistro", "Fecha", "FechaCarga", "FechaDocumento");
-            var colTipoDocumento = Pick("TipoDocumento");
-
-            if (string.IsNullOrWhiteSpace(colIdCompra))
-                return Enumerable.Empty<dynamic>();
-
-            var selectId = string.IsNullOrWhiteSpace(colId) ? "NULL AS IdCompraDocumento" : $"[{colId}] AS IdCompraDocumento";
-            var selectNombre = string.IsNullOrWhiteSpace(colNombre) ? "NULL AS NombreArchivo" : $"[{colNombre}] AS NombreArchivo";
-            var selectRuta = string.IsNullOrWhiteSpace(colRuta) ? "NULL AS RutaArchivo" : $"[{colRuta}] AS RutaArchivo";
-            var selectExt = string.IsNullOrWhiteSpace(colExt) ? "NULL AS Extension" : $"[{colExt}] AS Extension";
-            var selectFecha = string.IsNullOrWhiteSpace(colFecha) ? "NULL AS FechaCreacion" : $"[{colFecha}] AS FechaCreacion";
-            var selectTipoDoc = string.IsNullOrWhiteSpace(colTipoDocumento) ? "NULL AS TipoDocumento" : $"[{colTipoDocumento}] AS TipoDocumento";
-
-            var sql = $@"
+            return await db.QueryAsync(@"
 SELECT
-    {selectId},
-    [{colIdCompra}] AS IdCompra,
-    {selectNombre},
-    {selectRuta},
-    {selectExt},
-    {selectFecha},
-    {selectTipoDoc}
+    IdCompraDocumento,
+    IdCompra,
+    NombreArchivo,
+    RutaArchivo,
+    Extension
 FROM compras.CompraDocumento
-WHERE [{colIdCompra}] = @IdCompra
-ORDER BY 1 DESC";
-
-            return await db.QueryAsync(sql, new { IdCompra = idCompra });
+WHERE IdCompra = @IdCompra
+ORDER BY IdCompraDocumento DESC;", new { IdCompra = idCompra });
         }
 
         public async Task SaveDocumentosAsync(int idCompra, IEnumerable<(string NombreArchivo, string RutaArchivo, string? Extension)> docs)
         {
             using var db = Open();
-            var meta = (await db.QueryAsync(@"
-SELECT
-    COLUMN_NAME AS ColumnName,
-    IS_NULLABLE AS IsNullable
-FROM INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_SCHEMA = 'compras'
-  AND TABLE_NAME = 'CompraDocumento'
-ORDER BY ORDINAL_POSITION")).ToList();
-
-            var cols = meta.Select(x => (string)x.ColumnName).ToList();
-
-            string Pick(params string[] names) =>
-                cols.FirstOrDefault(c => names.Any(n => string.Equals(n, c, StringComparison.OrdinalIgnoreCase))) ?? string.Empty;
-
-            var colIdCompra = Pick("IdCompra");
-            var colNombre = Pick("NombreArchivo", "NombreDocumento", "Nombre", "Archivo", "NumeroDocumento");
-            var colRuta = Pick("RutaArchivo", "RutaDocumento", "Ruta", "UrlArchivo", "ArchivoRuta", "PathArchivo");
-            var colExt = Pick("Extension", "Ext", "TipoArchivo", "Tipo");
-            var colFecha = Pick("FechaCreacion", "FechaRegistro", "Fecha", "FechaCarga", "FechaDocumento");
-            var colTipoDocumento = Pick("TipoDocumento");
-            var colMonto = Pick("Monto");
-            var colObs = Pick("Observacion");
-
-            if (string.IsNullOrWhiteSpace(colIdCompra) || string.IsNullOrWhiteSpace(colNombre) || string.IsNullOrWhiteSpace(colRuta))
-                throw new InvalidOperationException("La tabla compras.CompraDocumento no tiene las columnas mínimas requeridas para guardar documentos.");
 
             foreach (var doc in docs)
             {
-                var columns = new List<string> { $"[{colIdCompra}]", $"[{colNombre}]", $"[{colRuta}]" };
-                var values = new List<string> { "@IdCompra", "@NombreArchivo", "@RutaArchivo" };
+                var nombreArchivo = string.IsNullOrWhiteSpace(doc.NombreArchivo)
+                    ? Path.GetFileName(doc.RutaArchivo ?? string.Empty)
+                    : doc.NombreArchivo.Trim();
 
-                if (!string.IsNullOrWhiteSpace(colExt))
-                {
-                    columns.Add($"[{colExt}]");
-                    values.Add("@Extension");
-                }
+                var rutaArchivo = (doc.RutaArchivo ?? string.Empty).Trim();
+                var extension = string.IsNullOrWhiteSpace(doc.Extension)
+                    ? Path.GetExtension(nombreArchivo)
+                    : doc.Extension.Trim();
 
-                if (!string.IsNullOrWhiteSpace(colTipoDocumento))
-                {
-                    columns.Add($"[{colTipoDocumento}]");
-                    values.Add("@TipoDocumento");
-                }
+                if (string.IsNullOrWhiteSpace(nombreArchivo))
+                    throw new InvalidOperationException("No se pudo determinar el nombre del archivo PDF.");
+                if (string.IsNullOrWhiteSpace(rutaArchivo))
+                    throw new InvalidOperationException("No se pudo determinar la ruta del archivo PDF.");
 
-                if (!string.IsNullOrWhiteSpace(colFecha))
-                {
-                    columns.Add($"[{colFecha}]");
-                    values.Add("GETDATE()");
-                }
-
-                if (!string.IsNullOrWhiteSpace(colMonto))
-                {
-                    columns.Add($"[{colMonto}]");
-                    values.Add("0");
-                }
-
-                if (!string.IsNullOrWhiteSpace(colObs))
-                {
-                    columns.Add($"[{colObs}]");
-                    values.Add("NULL");
-                }
-
-                var sql = $@"
+                await db.ExecuteAsync(@"
 INSERT INTO compras.CompraDocumento
 (
-    {string.Join(", ", columns)}
+    IdCompra,
+    NombreArchivo,
+    RutaArchivo,
+    Extension,
+    TipoDocumento,
+    FechaCreacion
 )
 VALUES
 (
-    {string.Join(", ", values)}
-)";
-
-                await db.ExecuteAsync(sql, new
+    @IdCompra,
+    @NombreArchivo,
+    @RutaArchivo,
+    @Extension,
+    'Factura',
+    GETDATE()
+);", new
                 {
                     IdCompra = idCompra,
-                    NombreArchivo = doc.NombreArchivo,
-                    RutaArchivo = doc.RutaArchivo,
-                    Extension = doc.Extension,
-                    TipoDocumento = "Factura"
+                    NombreArchivo = nombreArchivo,
+                    RutaArchivo = rutaArchivo,
+                    Extension = extension
                 });
             }
         }

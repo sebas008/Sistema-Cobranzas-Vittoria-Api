@@ -36,8 +36,8 @@ namespace Cobranzas_Vittoria.Repositories
                 servicio = (string?)x.Servicio,
                 moneda = (string?)x.Moneda,
                 montoCotizacion = (decimal?)x.MontoCotizacion ?? 0m,
-                porcentajeGarantia = (decimal?)x.PorcentajeGarantia ?? 0m,
-                porcentajeDetraccion = (decimal?)x.PorcentajeDetraccion ?? 0m
+                porcentajeGarantia = (decimal?)x.PorcentajeGarantia ?? 0.05m,
+                porcentajeDetraccion = (decimal?)x.PorcentajeDetraccion ?? 0.04m
             });
         }
 
@@ -56,10 +56,7 @@ namespace Cobranzas_Vittoria.Repositories
                 Activo = 1
             }, commandType: CommandType.StoredProcedure);
 
-            return new
-            {
-                idConfiguracion = (int?)result.IdProveedorEspecialidadCotizacion
-            };
+            return new { idConfiguracion = (int?)result.IdProveedorEspecialidadCotizacion };
         }
 
         public async Task<object> UpsertReglaProveedorAsync(ProveedorReglaValorizacionUpsertDto dto)
@@ -94,7 +91,14 @@ namespace Cobranzas_Vittoria.Repositories
                 razonSocial = (string?)x.Proveedor,
                 especialidad = (string?)x.Especialidad,
                 nombreEspecialidad = (string?)x.Especialidad,
-                montoCotizacion = (decimal?)x.Cotizacion ?? 0m
+                moneda = (string?)x.Moneda,
+                montoCotizacion = (decimal?)x.Cotizacion ?? 0m,
+                porcentajeGarantia = (decimal?)x.PorcentajeGarantia ?? 0.05m,
+                porcentajeDetraccion = (decimal?)x.PorcentajeDetraccion ?? 0.04m,
+                facturado = (decimal?)x.Facturado ?? 0m,
+                transferido = (decimal?)x.Transferido ?? 0m,
+                garantiaRetenida = (decimal?)x.GarantiaRetenida ?? 0m,
+                detraccionAcumulada = (decimal?)x.DetraccionAcumulada ?? 0m
             });
         }
 
@@ -125,8 +129,8 @@ namespace Cobranzas_Vittoria.Repositories
                     servicio = (string?)cabeceraRaw.Servicio,
                     moneda = (string?)cabeceraRaw.Moneda,
                     montoCotizacion = (decimal?)cabeceraRaw.Cotizacion ?? 0m,
-                    porcentajeGarantia = (decimal?)cabeceraRaw.PorcentajeGarantia ?? 0m,
-                    porcentajeDetraccion = (decimal?)cabeceraRaw.PorcentajeDetraccion ?? 0m
+                    porcentajeGarantia = (decimal?)cabeceraRaw.PorcentajeGarantia ?? 0.05m,
+                    porcentajeDetraccion = (decimal?)cabeceraRaw.PorcentajeDetraccion ?? 0.04m
                 };
             }
 
@@ -139,17 +143,17 @@ namespace Cobranzas_Vittoria.Repositories
                 igv = (decimal?)x.Igv ?? 0m,
                 montoFactura = (decimal?)x.MontoFactura ?? 0m,
                 descripcion = (string?)x.Descripcion,
-                detraccion = (decimal?)x.MontoDetraccion ?? 0m,
-                garantia = (decimal?)x.MontoGarantia ?? 0m,
+                detraccion = (decimal?)x.Detraccion ?? (decimal?)x.MontoDetraccion ?? 0m,
+                garantia = (decimal?)x.Garantia ?? (decimal?)x.MontoGarantia ?? 0m,
                 otrosDescuentos = (decimal?)x.OtrosDescuentos ?? 0m,
-                aAbonar = (decimal?)x.MontoAbonar ?? 0m,
+                aAbonar = (decimal?)x.AAbonar ?? (decimal?)x.MontoAbonar ?? 0m,
                 fechaTransferencia = (DateTime?)x.FechaTransferencia,
                 numeroOperacion = (string?)x.NumeroOperacion,
                 bancoTransferencia = (string?)x.BancoTransferencia,
                 bancoDestino = (string?)x.BancoDestino,
                 montoTransferido = (decimal?)x.MontoTransferido ?? 0m,
-                aFavor = (decimal?)x.MontoAFavor ?? 0m,
-                deuda = (decimal?)x.MontoDeuda ?? 0m,
+                aFavor = (decimal?)x.AFavor ?? (decimal?)x.MontoAFavor ?? 0m,
+                deuda = (decimal?)x.Deuda ?? (decimal?)x.MontoDeuda ?? 0m,
                 porcentajeAvance = (decimal?)x.PorcentajeAvance ?? 0m,
                 porcentajeAcumulado = (decimal?)x.PorcentajeAcumulado ?? 0m,
                 porcentajeInicial = (decimal?)x.PorcentajeInicial ?? 0m,
@@ -162,11 +166,17 @@ namespace Cobranzas_Vittoria.Repositories
                 resumen = new
                 {
                     cotizacion = (decimal?)resumenRaw.Cotizacion ?? 0m,
-                    garantia = (decimal?)resumenRaw.Garantia ?? 0m,
+                    porcentajeGarantia = (decimal?)resumenRaw.PorcentajeGarantia ?? 0.05m,
+                    porcentajeDetraccion = (decimal?)resumenRaw.PorcentajeDetraccion ?? 0.04m,
                     facturado = (decimal?)resumenRaw.Facturado ?? 0m,
                     transferido = (decimal?)resumenRaw.Transferido ?? 0m,
+                    garantiaRetenida = (decimal?)resumenRaw.GarantiaRetenida ?? 0m,
+                    detraccionAcumulada = (decimal?)resumenRaw.DetraccionAcumulada ?? 0m,
+                    otrosDescuentos = (decimal?)resumenRaw.OtrosDescuentos ?? 0m,
                     resta = (decimal?)resumenRaw.Resta ?? 0m,
-                    liquidar = (decimal?)resumenRaw.Liquidar ?? 0m
+                    liquidar = (decimal?)resumenRaw.Liquidar ?? 0m,
+                    aFavor = (decimal?)resumenRaw.AFavor ?? 0m,
+                    deuda = (decimal?)resumenRaw.Deuda ?? 0m
                 };
             }
 
@@ -243,13 +253,12 @@ namespace Cobranzas_Vittoria.Repositories
                 dto.NumeroOperacion,
                 dto.BancoTransferencia,
                 dto.BancoDestino,
-                dto.MontoTransferido
+                dto.MontoTransferido,
+                dto.PorcentajeDetraccionAplicado,
+                dto.PorcentajeGarantiaAplicado
             }, commandType: CommandType.StoredProcedure);
 
-            return new
-            {
-                idDetalle = (int?)result.IdValorizacionDetalle
-            };
+            return new { idDetalle = (int?)result.IdValorizacionDetalle };
         }
 
         public async Task<object> DeleteDetalleAsync(int idDetalle, string usuario)

@@ -1,3 +1,4 @@
+using Cobranzas_Vittoria.Dtos.Almacen;
 using Cobranzas_Vittoria.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 
@@ -24,5 +25,9 @@ namespace Cobranzas_Vittoria.Controllers
             var data = await _service.ListMovimientosAsync(idMaterial, idEspecialidad, fechaDesde, fechaHasta);
             return Ok(data);
         }
+
+        [HttpPost("salidas")]
+        public async Task<IActionResult> RegistrarSalida([FromBody] KardexSalidaCreateDto dto)
+            => Ok(await _service.RegistrarSalidaAsync(dto));
     }
 }

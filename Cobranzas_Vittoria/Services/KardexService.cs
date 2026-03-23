@@ -1,3 +1,4 @@
+using Cobranzas_Vittoria.Dtos.Almacen;
 using Cobranzas_Vittoria.Interfaces;
 
 namespace Cobranzas_Vittoria.Services
@@ -13,5 +14,8 @@ namespace Cobranzas_Vittoria.Services
 
         public Task<IEnumerable<dynamic>> ListMovimientosAsync(int? idMaterial, int? idEspecialidad, string? fechaDesde, string? fechaHasta)
             => _repo.ListMovimientosAsync(idMaterial, idEspecialidad, fechaDesde, fechaHasta);
+
+        public Task<object> RegistrarSalidaAsync(KardexSalidaCreateDto dto)
+            => _repo.RegistrarSalidaAsync(dto);
     }
 }
