@@ -44,15 +44,16 @@ namespace Cobranzas_Vittoria.Repositories
             var tvp = new DataTable();
             tvp.Columns.Add("IdMaterial", typeof(int));
             tvp.Columns.Add("Cantidad", typeof(decimal));
+            tvp.Columns.Add("IdProveedor", typeof(int));
             tvp.Columns.Add("PrecioUnitario", typeof(decimal));
 
             foreach (var it in dto.Items)
-                tvp.Rows.Add(it.IdMaterial, it.Cantidad, it.PrecioUnitario);
+                tvp.Rows.Add(it.IdMaterial, it.Cantidad, it.IdProveedor, it.PrecioUnitario);
 
             var p = new DynamicParameters();
             p.Add("NumeroOrdenCompra", dto.NumeroOrdenCompra);
             p.Add("IdRequerimiento", dto.IdRequerimiento);
-            p.Add("IdProveedor", dto.IdProveedor);
+            p.Add("IdProveedor", dto.IdProveedor > 0 ? dto.IdProveedor : dto.Items.FirstOrDefault()?.IdProveedor);
             p.Add("IdProyecto", dto.IdProyecto);
             p.Add("FechaOrdenCompra", dto.FechaOrdenCompra);
             p.Add("Descripcion", dto.Descripcion);
@@ -76,16 +77,17 @@ namespace Cobranzas_Vittoria.Repositories
             var tvp = new DataTable();
             tvp.Columns.Add("IdMaterial", typeof(int));
             tvp.Columns.Add("Cantidad", typeof(decimal));
+            tvp.Columns.Add("IdProveedor", typeof(int));
             tvp.Columns.Add("PrecioUnitario", typeof(decimal));
 
             foreach (var it in dto.Items)
-                tvp.Rows.Add(it.IdMaterial, it.Cantidad, it.PrecioUnitario);
+                tvp.Rows.Add(it.IdMaterial, it.Cantidad, it.IdProveedor, it.PrecioUnitario);
 
             var p = new DynamicParameters();
             p.Add("IdOrdenCompra", idOrdenCompra);
             p.Add("NumeroOrdenCompra", dto.NumeroOrdenCompra);
             p.Add("IdRequerimiento", dto.IdRequerimiento);
-            p.Add("IdProveedor", dto.IdProveedor);
+            p.Add("IdProveedor", dto.IdProveedor > 0 ? dto.IdProveedor : dto.Items.FirstOrDefault()?.IdProveedor);
             p.Add("IdProyecto", dto.IdProyecto);
             p.Add("FechaOrdenCompra", dto.FechaOrdenCompra);
             p.Add("Descripcion", dto.Descripcion);

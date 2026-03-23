@@ -17,5 +17,6 @@ public class OrdenCompraDetalleCreateDto
 {
     public int IdMaterial { get; set; }
     public decimal Cantidad { get; set; }
+    public int IdProveedor { get; set; }
     public decimal PrecioUnitario { get; set; }
 }
